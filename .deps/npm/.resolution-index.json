@@ -1,0 +1,10 @@
+{
+  "SimpleCampaign.sol": {
+    "__sources__": {
+      "SimpleCampaign.sol": {
+        "content": "// SPDX-License-Identifier: MIT\r\npragma solidity ^0.8.19;\r\n\r\ncontract SimpleCampaign {\r\n    address public owner;\r\n    uint256 public goal;\r\n    uint256 public deadline;\r\n    uint256 public totalRaised;\r\n    bool public withdrawn;\r\n    mapping(address => uint256) public donations;\r\n\r\n    event Donated(address indexed donor, uint256 amount);\r\n    event Refunded(address indexed donor, uint256 amount);\r\n    event Withdrawn(address indexed owner, uint256 amount);\r\n\r\n    constructor(uint256 _goal, uint256 _durationSeconds) {\r\n        owner = msg.sender;\r\n        goal = _goal;\r\n        deadline = block.timestamp + _durationSeconds;\r\n    }\r\n\r\n    function donate() external payable {\r\n        require(block.timestamp < deadline, \"Het han\");\r\n        require(msg.value > 0, \"So tien phai > 0\");\r\n        donations[msg.sender] += msg.value;\r\n        totalRaised += msg.value;\r\n        emit Donated(msg.sender, msg.value);\r\n    }\r\n\r\n    function refund() external {\r\n        require(block.timestamp >= deadline, \"Chua het han\");\r\n        require(totalRaised < goal, \"Da dat muc tieu\");\r\n        uint256 amount = donations[msg.sender];\r\n        require(amount > 0, \"Khong co tien de hoan\");\r\n        donations[msg.sender] = 0;\r\n        (bool ok, ) = msg.sender.call{value: amount}(\"\");\r\n        require(ok, \"Chuyen tien that bai\");\r\n        emit Refunded(msg.sender, amount);\r\n    }\r\n\r\n    function withdraw() external {\r\n        require(msg.sender == owner, \"Khong phai chu chien dich\");\r\n        require(totalRaised >= goal, \"Chua dat muc tieu\");\r\n        require(!withdrawn, \"Da rut\");\r\n        withdrawn = true;\r\n        uint256 amount = address(this).balance;\r\n        (bool ok, ) = owner.call{value: amount}(\"\");\r\n        require(ok, \"Chuyen tien that bai\");\r\n        emit Withdrawn(owner, amount);\r\n    }\r\n}",
+        "file": "SimpleCampaign.sol"
+      }
+    }
+  }
+}
