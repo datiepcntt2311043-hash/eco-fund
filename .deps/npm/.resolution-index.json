@@ -1,4 +1,7 @@
 {
+  "@openzeppelin/contracts/utils/ReentrancyGuard.sol": {
+    "./StorageSlot.sol": ".deps/npm/@openzeppelin/contracts@5.6.1/utils/StorageSlot.sol"
+  },
   "SimpleCampaign.sol": {
     "__sources__": {
       "SimpleCampaign.sol": {
@@ -6,9 +9,6 @@
         "file": "SimpleCampaign.sol"
       }
     }
-  },
-  "@openzeppelin/contracts/utils/ReentrancyGuard.sol": {
-    "./StorageSlot.sol": ".deps/npm/@openzeppelin/contracts@5.6.1/utils/StorageSlot.sol"
   },
   "@openzeppelin/contracts@5.6.1/utils/ReentrancyGuard.sol": {
     "./StorageSlot.sol": ".deps/npm/@openzeppelin/contracts@5.6.1/utils/StorageSlot.sol"
