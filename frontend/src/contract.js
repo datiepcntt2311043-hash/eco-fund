@@ -113,6 +113,17 @@ export async function ensureChain() {
   }
 }
 
+// Đăng xuất: xóa phiên và thu hồi quyền kết nối, lần đăng nhập sau MetaMask sẽ hỏi lại
+export async function logoutWallet() {
+  clearSession();
+  try { await window.ethereum?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }); }
+  catch { /* bản MetaMask cũ không hỗ trợ */ }
+}
+
+export async function fetchBalance(addr) {
+  return rpc.getBalance(addr);
+}
+
 async function buildUser() {
   const signer = await new BrowserProvider(window.ethereum).getSigner();
   const account = await signer.getAddress();
@@ -122,6 +133,10 @@ async function buildUser() {
 // Đăng nhập = chọn ví + ký một thông điệp (miễn phí, không chuyển tiền)
 export async function loginWithWallet() {
   if (!window.ethereum) throw new Error("Chưa cài MetaMask. Hãy cài tiện ích MetaMask rồi tải lại trang.");
+  // Mở cửa sổ MetaMask: nếu ví đang khóa sẽ yêu cầu nhập mật khẩu, sau đó cho chọn tài khoản
+  try {
+    await window.ethereum.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+  } catch (e) { if (e.code === 4001) throw e; /* bản MetaMask cũ: bỏ qua */ }
   await window.ethereum.request({ method: "eth_requestAccounts" });
   await ensureChain();
   const { signer, account } = await buildUser();

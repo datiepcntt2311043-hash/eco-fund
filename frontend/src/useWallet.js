@@ -2,7 +2,7 @@
 // Hook quản lý đăng nhập bằng MetaMask và vai trò của ví (Admin / Owner / Donor).
 import { useCallback, useEffect, useState } from "react";
 import {
-  loginWithWallet, restoreLogin, clearSession,
+  loginWithWallet, restoreLogin, clearSession, logoutWallet, fetchBalance,
   fetchAdmin, fetchIsApprovedOwner, same, errMsg,
 } from "./contract";
 
@@ -11,14 +11,16 @@ export function useWallet() {
   const [signer, setSigner] = useState(null);
   const [admin, setAdmin] = useState("");
   const [approved, setApproved] = useState(false);
+  const [balance, setBalance] = useState(0n);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const apply = useCallback(async (user) => {
-    if (!user) { setAccount(""); setSigner(null); setApproved(false); return; }
+    if (!user) { setAccount(""); setSigner(null); setApproved(false); setBalance(0n); return; }
     setSigner(user.signer);
     setAccount(user.account);
     setApproved(await fetchIsApprovedOwner(user.account));
+    setBalance(await fetchBalance(user.account));
   }, []);
 
   // Khi mở trang: đọc admin và khôi phục đăng nhập cũ (nếu có)
@@ -56,10 +58,10 @@ export function useWallet() {
     }
   }, [apply]);
 
-  const logout = useCallback(() => { clearSession(); apply(null); }, [apply]);
+  const logout = useCallback(async () => { await logoutWallet(); await apply(null); }, [apply]);
 
   const isAdmin = same(account, admin);
   const role = !account ? "Khách" : isAdmin ? "Admin" : approved ? "Owner" : "Donor";
 
-  return { account, signer, admin, approved, isAdmin, role, loading, error, login, logout };
+  return { account, signer, admin, approved, balance, isAdmin, role, loading, error, login, logout };
 }

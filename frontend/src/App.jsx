@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Leaf, Wallet, ArrowUpRight, Search, TreePine, Users, Clock3,
   ShieldCheck, Heart, Menu, X, CheckCircle2, ClipboardCheck,
-  RefreshCw, ExternalLink, Send, Check, RotateCcw
+  RefreshCw, ExternalLink, Send, Check, RotateCcw, LogOut, KeyRound
 } from "lucide-react";
 import { useWallet } from "./useWallet";
 import {
@@ -16,11 +16,11 @@ const EXPLORER = "https://cronos.org/explorer/testnet3";
 
 export default function App() {
   const wallet = useWallet();
-  const { account, signer, admin, approved, isAdmin, role, loading: walletLoading, error: walletError, login, logout } = wallet;
+  const { account, signer, admin, approved, balance, isAdmin, role, loading: walletLoading, error: walletError, login, logout } = wallet;
 
   const [page, S] = useState("home");
   const [items, I] = useState([]);
-  const [active, A] = useState(null);
+  const [activeAddr, A] = useState(null);
   const [notice, N] = useState("");
   const [q, Q] = useState("");
   const [filter, F] = useState("Tất cả");
@@ -31,6 +31,7 @@ export default function App() {
   const [donations, SD] = useState({});
   const [busy, B] = useState(false);
   const [refreshing, R] = useState(false);
+  const active = items.find(c => c.addr === activeAddr) || null;
 
   const say = (message) => N(message);
   const go = (p) => { S(p); A(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
@@ -60,7 +61,7 @@ export default function App() {
   }, [walletError]);
 
   const runTx = async (label, fn) => {
-    if (!signer) return say("Vui lòng kết nối MetaMask trước.");
+    if (!signer) return say("Vui lòng đăng nhập bằng MetaMask trước.");
     B(true);
     try {
       await sendTx(fn, say);
@@ -73,9 +74,14 @@ export default function App() {
     } finally { B(false); }
   };
 
-  const connect = async () => {
+  const connect = () => go("login");
+  const doLogin = async () => {
     const ok = await login();
-    if (ok) say("Đã kết nối và xác thực ví MetaMask.");
+    if (ok) { say("Đăng nhập thành công."); go("home"); }
+  };
+  const doLogout = async () => {
+    await logout();
+    say("Đã đăng xuất. Lần đăng nhập sau MetaMask sẽ yêu cầu xác nhận lại.");
   };
 
   const create = async (e) => {
@@ -134,12 +140,12 @@ export default function App() {
   const CampaignCard = ({ c }) => {
     const percent = c.goal > 0n ? Math.min(100, Number(c.raised * 10000n / c.goal) / 100) : 0;
     return <article className="card">
-      <button className="cover" onClick={() => A(c)}>
+      <button className="cover" onClick={() => A(c.addr)}>
         <img src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1000&q=85" alt="Dự án môi trường"/>
         <span>{STATE_VI[c.state] || "Không xác định"}</span>
       </button>
       <div className="cardbody">
-        <button className="cardtitle" onClick={() => A(c)}>{c.name}</button>
+        <button className="cardtitle" onClick={() => A(c.addr)}>{c.name}</button>
         <p>{c.description}</p>
         <div className="progress"><div><span style={{ width: percent + "%" }}/></div>
           <small><b>{percent.toFixed(1)}% mục tiêu</b><span>{fmt(c.raised)} / {fmt(c.goal)} TCRO</span></small>
@@ -148,7 +154,7 @@ export default function App() {
           <span><Clock3/> {timeLeft(c.deadline)}</span>
           <span><Wallet/> {shortAddr(c.owner)}</span>
         </div>
-        <button className="link" onClick={() => A(c)}>Xem chi tiết ↗</button>
+        <button className="link" onClick={() => A(c.addr)}>Xem chi tiết ↗</button>
       </div>
     </article>;
   };
@@ -158,8 +164,8 @@ export default function App() {
       <button className="brand" onClick={() => go("home")}><span className="logo"><Leaf/></span>ECO<span>-</span>FUND</button>
       <nav>{nav.map(([p,t]) => <button key={p} className={page===p?"active":""} onClick={() => go(p)}>{t}</button>)}</nav>
       {account
-        ? <button className="wallet" onClick={logout}><Wallet size={17}/>{shortAddr(account)} · {role} · Đăng xuất</button>
-        : <button className="wallet" onClick={connect} disabled={walletLoading}><Wallet size={17}/>{walletLoading?"Đang tải...":"Kết nối ví"}</button>}
+        ? <div className="userbox"><span className="userinfo"><b>{role}</b> · {shortAddr(account)} · {fmt(balance)} TCRO</span><button className="outline tiny" onClick={doLogout}><LogOut size={14}/> Đăng xuất</button></div>
+        : <button className="wallet" onClick={connect} disabled={walletLoading}><KeyRound size={17}/>{walletLoading?"Đang tải...":"Đăng nhập"}</button>}
       <button className="hamb" onClick={() => go(page==="menu"?"home":"menu")}><Menu/></button>
     </header>
 
@@ -207,9 +213,29 @@ export default function App() {
       {!shown.length&&<Empty text="Không tìm thấy chiến dịch phù hợp trên Blockchain."/>}
     </>}
 
+    {page==="login" && <section className="formpage">
+      <SectionTitle eyebrow="XÁC THỰC BẰNG VÍ" title="Đăng nhập"/>
+      {account ? <div className="loginbox">
+        <h3>Bạn đã đăng nhập</h3>
+        <p className="loginline">Tài khoản: <b>{account}</b></p>
+        <p className="loginline">Vai trò: <b>{role}</b> · Số dư: <b>{fmt(balance)} TCRO</b></p>
+        <button className="outline" onClick={doLogout}><LogOut size={15}/> Đăng xuất</button>
+      </div> : <div className="loginbox">
+        <p>ECO-FUND dùng ví MetaMask làm tài khoản: địa chỉ ví là tên tài khoản, còn mật khẩu do MetaMask giữ và kiểm tra.</p>
+        <ol>
+          <li>Bấm nút bên dưới, cửa sổ MetaMask sẽ mở ra.</li>
+          <li>Nếu ví đang khóa, <b>nhập mật khẩu ví trong cửa sổ của MetaMask</b> để mở khóa.</li>
+          <li>Chọn tài khoản muốn dùng và bấm Kết nối.</li>
+          <li>Bấm Ký để xác nhận đăng nhập (không tốn phí, không chuyển tiền).</li>
+        </ol>
+        <div className="hint"><ShieldCheck/><span><b>ECO-FUND không có ô nhập mật khẩu</b><small>Mật khẩu ví và cụm từ khôi phục chỉ được nhập vào MetaMask. Trang web nào yêu cầu bạn nhập chúng đều là lừa đảo.</small></span></div>
+        <button className="primary wide" onClick={doLogin} disabled={walletLoading || busy}><KeyRound size={17}/> Đăng nhập bằng MetaMask</button>
+      </div>}
+    </section>}
+
     {page==="create" && <section className="formpage">
       <SectionTitle eyebrow="LAN TỎA SÁNG KIẾN" title="Tạo chiến dịch mới"/>
-      {!account ? <button className="primary" onClick={connect}>Kết nối MetaMask để tiếp tục</button>
+      {!account ? <button className="primary" onClick={connect}>Đăng nhập để tiếp tục</button>
       : !approved ? <div className="hint"><ShieldCheck/><span><b>Ví chưa được Admin phê duyệt</b><small>Gửi địa chỉ {account} cho Admin để được cấp quyền Owner. Chỉ ví được duyệt mới tạo chiến dịch.</small></span></div>
       : <form onSubmit={create}>
         <label>Tên chiến dịch<input required maxLength="100" value={form.title} onChange={e=>T({...form,title:e.target.value})} placeholder="Ví dụ: Trồng 1.000 cây xanh"/></label>
@@ -226,7 +252,7 @@ export default function App() {
 
     {page==="dashboard" && <section className="page">
       <SectionTitle eyebrow="KHÔNG GIAN CỦA BẠN" title="Dashboard Owner"/>
-      {!account ? <button className="primary" onClick={connect}>Kết nối ví</button> : <>
+      {!account ? <button className="primary" onClick={connect}>Đăng nhập</button> : <>
         <div className="hint"><Wallet/><span><b>Ví đang sử dụng · {role}</b><small>{account}</small></span></div>
         {!approved && !isAdmin && <p>Ví hiện tại chưa được cấp quyền Owner.</p>}
         <div className="ownerlist">{items.filter(c=>same(c.owner,account)).map(c=><div className="table" key={c.addr}>
@@ -286,7 +312,7 @@ function MilestoneManager({c,isAdmin,busy,proofs,setProofs,submitProof,approveMi
   return <div className="milestonemanager">{(c.milestones||[]).map((m,i)=><div className="milestoneadmin" key={i}>
     <b>Milestone {i+1} · {m.percent}%</b><p>{m.proof||"Chưa có bằng chứng"}</p>
     <small>{m.withdrawn?"Đã giải ngân":m.approved?"Đã phê duyệt":m.submitted?"Đã gửi bằng chứng":"Chưa gửi bằng chứng"}</small>
-    {!isAdmin && c.state===1 && !m.approved && <div><input value={proofs[`${c.addr}-${i}`]||""} onChange={e=>setProofs(old=>({...old,[`${c.addr}-${i}`]:e.target.value}))} placeholder="Nhập mã hash / URL bằng chứng"/><button className="outline tiny" disabled={busy} onClick={()=>submitProof(c,i)}><Send size={13}/> Gửi bằng chứng</button></div>}
+    {!isAdmin && c.state===1 && !m.approved && (i===0 || c.milestones[i-1]?.withdrawn) && <div><input value={proofs[`${c.addr}-${i}`]||""} onChange={e=>setProofs(old=>({...old,[`${c.addr}-${i}`]:e.target.value}))} placeholder="Nhập mã hash / URL bằng chứng"/><button className="outline tiny" disabled={busy} onClick={()=>submitProof(c,i)}><Send size={13}/> Gửi bằng chứng</button></div>}
     {isAdmin && c.state===1 && m.submitted && !m.approved && <button className="outline tiny" disabled={busy} onClick={()=>approveMilestone(c,i)}><Check size={13}/> Phê duyệt</button>}
     {!isAdmin && c.state===1 && m.approved && !m.withdrawn && <button className="primary tiny" disabled={busy} onClick={()=>withdrawMilestone(c,i)}>Giải ngân milestone</button>}
   </div>)}</div>;
