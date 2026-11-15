@@ -8,7 +8,8 @@ import {
 export { formatEther, parseEther, isAddress };
 
 /* ---------- Cấu hình (đổi ở đây nếu deploy lại) ---------- */
-export const FACTORY_ADDRESS = "0xE20154338f422dC191fcf038C18F78499135F4b2";
+// !!! SAU KHI DEPLOY LẠI CampaignFactory TRÊN REMIX, DÁN ĐỊA CHỈ MỚI VÀO ĐÂY !!!
+export const FACTORY_ADDRESS = "0x3599CEAb223d0E89134c6BBCb1faC0817154993e";
 export const RPC = "https://evm-t3.cronos.org";
 export const CHAIN_HEX = "0x152"; // 338 = Cronos Testnet
 export const CHAIN_PARAMS = {
@@ -33,13 +34,20 @@ export const CAMPAIGN_ABI = [
   "function donations(address) view returns (uint256)",
   "function donate() payable",
   "function refund()",
+  "function approveCampaign()",
+  "function rejectCampaign()",
   "function submitProof(uint256,string)",
   "function approveMilestone(uint256)",
   "function withdrawMilestone(uint256)",
 ];
 
-// Thứ tự khớp enum State trong Solidity: Active, Successful, Failed, Completed, Refunded
-export const STATE_VI = ["Đang gây quỹ", "Đã đủ mục tiêu", "Thất bại", "Đã giải ngân hết", "Đã hoàn tiền"];
+// Thứ tự khớp enum State trong Solidity:
+// Pending, Active, Successful, Failed, Completed, Refunded, Rejected
+export const STATE = { PENDING: 0, ACTIVE: 1, SUCCESSFUL: 2, FAILED: 3, COMPLETED: 4, REFUNDED: 5, REJECTED: 6 };
+export const STATE_VI = [
+  "Chờ duyệt", "Đang gây quỹ", "Đã đủ mục tiêu", "Thất bại",
+  "Đã giải ngân hết", "Đã hoàn tiền", "Bị từ chối",
+];
 
 /* ---------- Đọc dữ liệu (không cần đăng nhập) ---------- */
 const rpc = new JsonRpcProvider(RPC);
@@ -68,10 +76,10 @@ export async function fetchCampaigns() {
         owner: i[2],
         verifier: i[3],
         goal: i[4],            // bigint (wei)
-        deadline: Number(i[5]), // giây
+        deadline: Number(i[5]), // giây; = 0 khi còn chờ duyệt
         raised: i[6],          // bigint (wei)
         balance: i[7],
-        state: Number(i[8]),   // 0..4, xem STATE_VI
+        state: Number(i[8]),   // 0..6, xem STATE_VI
         milestoneCount: Number(i[9]),
       };
     })
@@ -179,6 +187,8 @@ const factory = (signer) => new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
 export const actions = {
   donate: (signer, addr, amountTcro) => campaign(addr, signer).donate({ value: parseEther(String(amountTcro)) }),
   refund: (signer, addr) => campaign(addr, signer).refund(),
+  approveCampaign: (signer, addr) => campaign(addr, signer).approveCampaign(),
+  rejectCampaign: (signer, addr) => campaign(addr, signer).rejectCampaign(),
   submitProof: (signer, addr, index, proof) => campaign(addr, signer).submitProof(index, proof),
   approveMilestone: (signer, addr, index) => campaign(addr, signer).approveMilestone(index),
   withdrawMilestone: (signer, addr, index) => campaign(addr, signer).withdrawMilestone(index),
@@ -192,7 +202,9 @@ export const actions = {
 };
 
 // Thời gian còn lại, dùng chung cho các thẻ chiến dịch
+// deadline = 0 nghĩa là chiến dịch chưa được admin duyệt
 export function timeLeft(deadlineSec) {
+  if (!deadlineSec) return "Chờ admin duyệt";
   const d = deadlineSec * 1000 - Date.now();
   if (d <= 0) return "Đã hết hạn";
   const days = Math.floor(d / 864e5), h = Math.floor((d % 864e5) / 36e5), m = Math.floor((d % 36e5) / 6e4);

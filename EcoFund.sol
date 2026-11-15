@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-// Trong Remix, import này tự tải OpenZeppelin từ npm, không cần cài gì thêm.
+// Trong Remix, import nay tu tai OpenZeppelin tu npm, khong can cai gi them.
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /*
@@ -12,8 +12,13 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  *  - Campaign: quan ly tien cua MOT chien dich (donate, refund, giai ngan theo milestone).
  *
  * State machine:
+ *  Pending -> Active (admin duyet, deadline tinh tu luc duyet)
+ *  Pending -> Rejected (admin tu choi)
  *  Active -> Successful (du muc tieu truoc han) -> Completed (rut het cac milestone)
  *  Active -> Failed (het han, chua du)          -> Refunded (donor goi refund)
+ *
+ * LUU Y: enum State da DOI THU TU so voi ban cu. Frontend phai cap nhat STATE_VI:
+ *  0 Pending, 1 Active, 2 Successful, 3 Failed, 4 Completed, 5 Refunded, 6 Rejected
  */
 
 /* ============================================================
@@ -21,7 +26,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * ============================================================ */
 contract Campaign is ReentrancyGuard {
     // ---------- Kieu du lieu ----------
-    enum State { Active, Successful, Failed, Completed, Refunded }
+    enum State { Pending, Active, Successful, Failed, Completed, Refunded, Rejected }
 
     struct Milestone {
         uint8 percent;          // % tong tien duoc rut khi milestone nay duoc duyet
@@ -32,12 +37,14 @@ contract Campaign is ReentrancyGuard {
     }
 
     // ---------- Bien trang thai ----------
+    address public immutable factory;   // Factory da tao chien dich nay
     address public immutable owner;     // nguoi thuc hien chien dich
-    address public immutable verifier;  // nguoi xac nhan milestone (admin cua Factory)
+    address public immutable verifier;  // nguoi xac nhan (admin cua Factory)
     string public name;
     string public description;
     uint256 public immutable goal;      // muc tieu (wei)
-    uint256 public immutable deadline;  // han chot (timestamp, giay)
+    uint256 public immutable duration;  // thoi gian song (giay), tinh tu luc duoc duyet
+    uint256 public deadline;            // han chot (timestamp); = 0 khi con Pending
 
     uint256 public totalRaised;         // tong tien da gop (khong doi khi rut)
     State public state;
@@ -46,6 +53,8 @@ contract Campaign is ReentrancyGuard {
     Milestone[] private milestones;
 
     // ---------- Event ----------
+    event CampaignApproved(uint256 deadline);
+    event CampaignRejected();
     event Donated(address indexed donor, uint256 amount, uint256 totalRaised);
     event GoalReached(uint256 totalRaised);
     event CampaignFailed(uint256 totalRaised);
@@ -72,12 +81,12 @@ contract Campaign is ReentrancyGuard {
         string memory _name,
         string memory _description,
         uint256 _goal,
-        uint256 _deadline,
+        uint256 _duration,
         uint8[] memory _percents
     ) {
         require(_owner != address(0) && _verifier != address(0), "Dia chi khong hop le");
         require(_goal > 0, "Muc tieu phai > 0");
-        require(_deadline > block.timestamp, "Han chot phai o tuong lai");
+        require(_duration > 0, "Thoi gian phai > 0");
         require(_percents.length >= 2 && _percents.length <= 3, "Can 2-3 milestone");
 
         uint256 sum;
@@ -88,13 +97,29 @@ contract Campaign is ReentrancyGuard {
         }
         require(sum == 100, "Tong % milestone phai bang 100");
 
+        factory = msg.sender;
         owner = _owner;
         verifier = _verifier;
         name = _name;
         description = _description;
         goal = _goal;
-        deadline = _deadline;
+        duration = _duration;
+        state = State.Pending; // cho admin duyet
+    }
+
+    // ---------- Admin duyet chien dich ----------
+
+    function approveCampaign() external onlyVerifier {
+        require(state == State.Pending, "Khong o trang thai cho duyet");
         state = State.Active;
+        deadline = block.timestamp + duration;
+        emit CampaignApproved(deadline);
+    }
+
+    function rejectCampaign() external onlyVerifier {
+        require(state == State.Pending, "Khong o trang thai cho duyet");
+        state = State.Rejected;
+        emit CampaignRejected();
     }
 
     // ---------- State machine ----------
@@ -270,7 +295,7 @@ contract Campaign is ReentrancyGuard {
  *                      CAMPAIGN FACTORY
  * ============================================================ */
 contract CampaignFactory {
-    address public immutable admin;              // admin kiem verifier
+    address public immutable admin;                 // admin kiem verifier
     mapping(address => bool) public approvedOwners; // whitelist nguoi tao chien dich
     address[] private campaigns;
 
@@ -280,7 +305,7 @@ contract CampaignFactory {
         address indexed owner,
         string name,
         uint256 goal,
-        uint256 deadline
+        uint256 duration
     );
 
     modifier onlyAdmin() {
@@ -300,8 +325,9 @@ contract CampaignFactory {
         emit OwnerApproved(_owner);
     }
 
-    // _durationSeconds: thoi gian song cua chien dich tinh tu bay gio (de test cho de).
+    // _durationSeconds: thoi gian song cua chien dich, tinh tu luc admin DUYET chien dich.
     // _percents: vi du [30,70] hoac [30,30,40]; tong phai = 100.
+    // Chien dich moi tao o trang thai Pending, admin goi approveCampaign() tren chien dich do de mo.
     function createCampaign(
         string calldata _name,
         string calldata _description,
@@ -311,19 +337,18 @@ contract CampaignFactory {
     ) external returns (address) {
         require(approvedOwners[msg.sender], "Ban chua duoc admin duyet");
 
-        uint256 _deadline = block.timestamp + _durationSeconds;
         Campaign c = new Campaign(
             msg.sender,
             admin,
             _name,
             _description,
             _goal,
-            _deadline,
+            _durationSeconds,
             _percents
         );
 
         campaigns.push(address(c));
-        emit CampaignCreated(address(c), msg.sender, _name, _goal, _deadline);
+        emit CampaignCreated(address(c), msg.sender, _name, _goal, _durationSeconds);
         return address(c);
     }
 

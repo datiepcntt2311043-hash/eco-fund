@@ -8,7 +8,7 @@ import { useWallet } from "./useWallet";
 import {
   FACTORY_ADDRESS, actions, fetchCampaigns, fetchMilestones,
   fetchMyDonation, fmt, isAddress, same, shortAddr, timeLeft, errMsg,
-  sendTx, STATE_VI
+  sendTx, STATE_VI, STATE
 } from "./contract";
 
 const DEFAULT_FORM = { title: "", category: "Trồng rừng", goal: "5", days: "30", desc: "", percents: "30,30,40" };
@@ -95,7 +95,11 @@ export default function App() {
       name: form.title.trim(), description: form.desc.trim(),
       goalTcro: form.goal, durationDays: form.days, percents
     }));
-    if (ok) { T(DEFAULT_FORM); go("campaigns"); }
+    if (ok) {
+      T(DEFAULT_FORM);
+      go("campaigns");
+      say("Đã tạo chiến dịch. Chiến dịch đang chờ Admin duyệt, sau khi được duyệt mới nhận quyên góp.");
+    }
   };
 
   const donate = async (addr) => {
@@ -109,6 +113,14 @@ export default function App() {
     if (!isAddress(newOwner.trim())) return say("Địa chỉ ví không hợp lệ.");
     const ok = await runTx("Phê duyệt Owner", () => actions.approveOwner(signer, newOwner.trim()));
     if (ok) NO("");
+  };
+
+  const approveCampaign = async (c) => {
+    await runTx("Duyệt chiến dịch", () => actions.approveCampaign(signer, c.addr));
+  };
+
+  const rejectCampaign = async (c) => {
+    await runTx("Từ chối chiến dịch", () => actions.rejectCampaign(signer, c.addr));
   };
 
   const submitProof = async (c, index) => {
@@ -129,12 +141,18 @@ export default function App() {
     await runTx("Hoàn tiền", () => actions.refund(signer, c.addr));
   };
 
-  const shown = useMemo(() => items.filter(c =>
-    (filter === "Tất cả" || (filter === "Đang gây quỹ" ? c.state === 0 : c.state !== 0)) &&
-    `${c.name} ${c.description}`.toLowerCase().includes(q.toLowerCase())
-  ), [items, filter, q]);
+  const shown = useMemo(() => items.filter(c => {
+    const okFilter =
+      filter === "Tất cả" ||
+      (filter === "Đang gây quỹ" && c.state === STATE.ACTIVE) ||
+      (filter === "Chờ duyệt" && c.state === STATE.PENDING) ||
+      (filter === "Đã kết thúc" && c.state >= STATE.SUCCESSFUL);
+    return okFilter && `${c.name} ${c.description}`.toLowerCase().includes(q.toLowerCase());
+  }), [items, filter, q]);
 
   const totalRaised = items.reduce((sum, c) => sum + c.raised, 0n);
+  const pendingItems = items.filter(c => c.state === STATE.PENDING);
+  const featured = items.filter(c => c.state !== STATE.PENDING && c.state !== STATE.REJECTED);
   const nav = [["home","Trang chủ"],["campaigns","Chiến dịch"],["create","Tạo chiến dịch"],["dashboard","Owner"], ...(isAdmin ? [["admin","Admin"]] : [])];
 
   const CampaignCard = ({ c }) => {
@@ -195,18 +213,18 @@ export default function App() {
       <section className="stats">
         <Stat n={fmt(totalRaised)+" TCRO"} t="Tổng tiền đã quyên góp on-chain"/>
         <Stat n={items.length} t="Chiến dịch đã tạo"/>
-        <Stat n={items.filter(c=>c.state===1||c.state===3).length} t="Chiến dịch đạt mục tiêu/hoàn thành"/>
+        <Stat n={items.filter(c=>c.state===STATE.SUCCESSFUL||c.state===STATE.COMPLETED).length} t="Chiến dịch đạt mục tiêu/hoàn thành"/>
         <Stat n="Cronos" t="Mạng Blockchain"/>
       </section>
       <SectionTitle eyebrow="DỮ LIỆU TRỰC TIẾP TỪ SMART CONTRACT" title="Những chiến dịch nổi bật" action={() => go("campaigns")}/>
-      {items.length ? <div className="grid">{items.slice(0,3).map(c=><CampaignCard key={c.addr} c={c}/>)}</div> : <Empty text="Chưa có chiến dịch nào trên Blockchain."/>}
+      {featured.length ? <div className="grid">{featured.slice(0,3).map(c=><CampaignCard key={c.addr} c={c}/>)}</div> : <Empty text="Chưa có chiến dịch nào trên Blockchain."/>}
     </>}
 
     {page==="campaigns" && <>
       <SectionTitle eyebrow="CÙNG HÀNH ĐỘNG VÌ HÀNH TINH" title="Khám phá chiến dịch"/>
       <div className="filters">
         <div className="search"><Search/><input placeholder="Tìm kiếm chiến dịch..." value={q} onChange={e=>Q(e.target.value)}/></div>
-        {["Tất cả","Đang gây quỹ","Đã kết thúc"].map(x=><button key={x} className={filter===x?"chosen":""} onClick={()=>F(x)}>{x}</button>)}
+        {["Tất cả","Đang gây quỹ","Chờ duyệt","Đã kết thúc"].map(x=><button key={x} className={filter===x?"chosen":""} onClick={()=>F(x)}>{x}</button>)}
         <button className="outline" onClick={()=>load()} disabled={refreshing}><RefreshCw size={15}/> {refreshing?"Đang tải":"Làm mới"}</button>
       </div>
       <div className="grid">{shown.map(c=><CampaignCard key={c.addr} c={c}/>)}</div>
@@ -241,11 +259,11 @@ export default function App() {
         <label>Tên chiến dịch<input required maxLength="100" value={form.title} onChange={e=>T({...form,title:e.target.value})} placeholder="Ví dụ: Trồng 1.000 cây xanh"/></label>
         <div className="two">
           <label>Mục tiêu (TCRO)<input required type="number" min="0.001" step="0.001" value={form.goal} onChange={e=>T({...form,goal:e.target.value})}/></label>
-          <label>Thời hạn (ngày)<input required type="number" min="1" max="365" value={form.days} onChange={e=>T({...form,days:e.target.value})}/></label>
+          <label>Thời hạn (ngày, tính từ lúc Admin duyệt)<input required type="number" min="1" max="365" value={form.days} onChange={e=>T({...form,days:e.target.value})}/></label>
         </div>
         <label>Mô tả dự án<textarea required rows="5" maxLength="1000" value={form.desc} onChange={e=>T({...form,desc:e.target.value})} placeholder="Mục tiêu, hoạt động và kết quả mong đợi..."/></label>
         <label>Tỷ lệ giải ngân từng milestone (%)<input required value={form.percents} onChange={e=>T({...form,percents:e.target.value})} placeholder="30,30,40"/></label>
-        <div className="hint"><ShieldCheck/><span><b>Giải ngân theo milestone</b><small>Nhập 2–3 tỷ lệ, tổng đúng 100%. Ví dụ 30,30,40. Verifier là Admin của Factory.</small></span></div>
+        <div className="hint"><ShieldCheck/><span><b>Chiến dịch cần Admin duyệt</b><small>Sau khi tạo, chiến dịch ở trạng thái chờ duyệt và chưa nhận quyên góp. Giải ngân theo 2–3 milestone, tổng đúng 100%. Ví dụ 30,30,40.</small></span></div>
         <button className="primary wide" disabled={busy}>{busy?"Đang xử lý...":"Tạo chiến dịch trên Blockchain"} <ArrowUpRight size={17}/></button>
       </form>}
     </section>}
@@ -257,7 +275,9 @@ export default function App() {
         {!approved && !isAdmin && <p>Ví hiện tại chưa được cấp quyền Owner.</p>}
         <div className="ownerlist">{items.filter(c=>same(c.owner,account)).map(c=><div className="table" key={c.addr}>
           <h3>{c.name}</h3><p>{fmt(c.raised)} / {fmt(c.goal)} TCRO · {STATE_VI[c.state]}</p>
-          <MilestoneManager c={c} account={account} isAdmin={isAdmin} busy={busy} proofs={proofs} setProofs={SP} submitProof={submitProof} approveMilestone={approveMilestone} withdrawMilestone={withdrawMilestone}/>
+          {c.state===STATE.PENDING && <p className="muted">Đang chờ Admin duyệt. Chiến dịch chưa nhận quyên góp.</p>}
+          {c.state===STATE.REJECTED && <p className="muted">Chiến dịch đã bị Admin từ chối.</p>}
+          {c.state>=STATE.SUCCESSFUL && c.state!==STATE.REJECTED && <MilestoneManager c={c} account={account} isAdmin={isAdmin} busy={busy} proofs={proofs} setProofs={SP} submitProof={submitProof} approveMilestone={approveMilestone} withdrawMilestone={withdrawMilestone}/>}
         </div>)}
         {!items.some(c=>same(c.owner,account))&&<Empty text="Ví này chưa tạo chiến dịch nào."/>}</div>
       </>}
@@ -270,12 +290,22 @@ export default function App() {
           <div><Users/><h3>Phê duyệt người tạo</h3><p>Cấp quyền Owner cho địa chỉ ví được phép tạo chiến dịch.</p>
             <form onSubmit={approveOwner}><label>Địa chỉ ví Owner<input value={newOwner} onChange={e=>NO(e.target.value)} placeholder="0x..."/></label><button className="primary" disabled={busy}>Duyệt Owner</button></form>
           </div>
-          <div><ClipboardCheck/><h3>Xác minh milestone</h3><p>Đọc bằng chứng do Owner gửi và phê duyệt trước khi giải ngân.</p>
+          <div><ClipboardCheck/><h3>Duyệt chiến dịch và milestone</h3><p>Duyệt hoặc từ chối chiến dịch mới, và phê duyệt bằng chứng milestone trước khi giải ngân.</p>
+            <p><b>{pendingItems.length}</b> chiến dịch đang chờ duyệt</p>
             <p><a href={`${EXPLORER}/address/${FACTORY_ADDRESS}`} target="_blank" rel="noreferrer">Mở Factory trên Explorer <ExternalLink size={13}/></a></p>
           </div>
         </div>
-        {items.map(c=><div className="table" key={c.addr}><h3>{c.name}</h3><p>Owner: {shortAddr(c.owner)} · {STATE_VI[c.state]}</p>
-          <MilestoneManager c={c} account={account} isAdmin={isAdmin} busy={busy} proofs={proofs} setProofs={SP} submitProof={submitProof} approveMilestone={approveMilestone} withdrawMilestone={withdrawMilestone}/>
+        {[...items].sort((a,b)=>(b.state===STATE.PENDING)-(a.state===STATE.PENDING)).map(c=><div className="table" key={c.addr}>
+          <h3>{c.name}</h3><p>Owner: {shortAddr(c.owner)} · {STATE_VI[c.state]}</p>
+          {c.state===STATE.PENDING && <div className="milestoneadmin">
+            <p>{c.description}</p>
+            <small>Mục tiêu: {fmt(c.goal)} TCRO · Gồm {c.milestoneCount} milestone</small>
+            <div>
+              <button className="primary tiny" disabled={busy} onClick={()=>approveCampaign(c)}><Check size={13}/> Duyệt chiến dịch</button>{" "}
+              <button className="outline tiny" disabled={busy} onClick={()=>rejectCampaign(c)}><X size={13}/> Từ chối</button>
+            </div>
+          </div>}
+          {c.state>=STATE.SUCCESSFUL && c.state!==STATE.REJECTED && <MilestoneManager c={c} account={account} isAdmin={isAdmin} busy={busy} proofs={proofs} setProofs={SP} submitProof={submitProof} approveMilestone={approveMilestone} withdrawMilestone={withdrawMilestone}/>}
         </div>)}
       </>}
     </section>}
@@ -294,8 +324,10 @@ export default function App() {
           <ProgressChain c={active}/>
           <h3>Các giai đoạn thực hiện</h3>
           {(active.milestones||[]).map((m,i)=><div className="milestone" key={i}><CheckCircle2/><span>{m.percent}% · {m.proof||"Chưa có bằng chứng"}</span><small>{m.withdrawn?"Đã giải ngân":m.approved?"Đã duyệt":m.submitted?"Chờ duyệt":"Chưa gửi"}</small></div>)}
-          {active.state===0 && <><label className="donate">Số TCRO muốn đóng góp<input type="number" min="0.001" step="0.001" value={amount} onChange={e=>M(e.target.value)}/></label><button className="primary wide" disabled={busy} onClick={()=>donate(active.addr)}><Heart size={17}/> Quyên góp bằng MetaMask</button></>}
-          {(active.state===2 || active.state===4) && Number(active.myDonation)>0 && <button className="outline wide" disabled={busy} onClick={()=>refund(active)}> <RotateCcw size={16}/> Yêu cầu hoàn tiền ({fmt(active.myDonation)} TCRO)</button>}
+          {active.state===STATE.PENDING && <div className="hint"><ShieldCheck/><span><b>Đang chờ Admin duyệt</b><small>Chiến dịch chưa nhận quyên góp cho đến khi được duyệt.</small></span></div>}
+          {active.state===STATE.REJECTED && <div className="hint"><ShieldCheck/><span><b>Chiến dịch đã bị từ chối</b><small>Chiến dịch này không nhận quyên góp.</small></span></div>}
+          {active.state===STATE.ACTIVE && <><label className="donate">Số TCRO muốn đóng góp<input type="number" min="0.001" step="0.001" value={amount} onChange={e=>M(e.target.value)}/></label><button className="primary wide" disabled={busy} onClick={()=>donate(active.addr)}><Heart size={17}/> Quyên góp bằng MetaMask</button></>}
+          {(active.state===STATE.FAILED || active.state===STATE.REFUNDED) && Number(active.myDonation)>0 && <button className="outline wide" disabled={busy} onClick={()=>refund(active)}> <RotateCcw size={16}/> Yêu cầu hoàn tiền ({fmt(active.myDonation)} TCRO)</button>}
           <small className="muted">Campaign: <a href={`${EXPLORER}/address/${active.addr}`} target="_blank" rel="noreferrer">{shortAddr(active.addr)} <ExternalLink size={12}/></a></small>
         </div>
       </div>
@@ -309,11 +341,12 @@ function SectionTitle({eyebrow,title,action}) { return <div className="sectionti
 function Empty({text}) { return <div className="empty">{text}</div>; }
 function ProgressChain({c}) { const p=c.goal>0n?Math.min(100,Number(c.raised*10000n/c.goal)/100):0; return <div className="progress"><div><span style={{width:p+"%"}}/></div><small><b>{p.toFixed(1)}% mục tiêu</b><span>Còn {fmt(c.goal>c.raised?c.goal-c.raised:0n)} TCRO</span></small></div>; }
 function MilestoneManager({c,isAdmin,busy,proofs,setProofs,submitProof,approveMilestone,withdrawMilestone}) {
+  const ok = c.state === STATE.SUCCESSFUL; // chỉ thao tác milestone khi chiến dịch đã đủ mục tiêu
   return <div className="milestonemanager">{(c.milestones||[]).map((m,i)=><div className="milestoneadmin" key={i}>
     <b>Milestone {i+1} · {m.percent}%</b><p>{m.proof||"Chưa có bằng chứng"}</p>
     <small>{m.withdrawn?"Đã giải ngân":m.approved?"Đã phê duyệt":m.submitted?"Đã gửi bằng chứng":"Chưa gửi bằng chứng"}</small>
-    {!isAdmin && c.state===1 && !m.approved && (i===0 || c.milestones[i-1]?.withdrawn) && <div><input value={proofs[`${c.addr}-${i}`]||""} onChange={e=>setProofs(old=>({...old,[`${c.addr}-${i}`]:e.target.value}))} placeholder="Nhập mã hash / URL bằng chứng"/><button className="outline tiny" disabled={busy} onClick={()=>submitProof(c,i)}><Send size={13}/> Gửi bằng chứng</button></div>}
-    {isAdmin && c.state===1 && m.submitted && !m.approved && <button className="outline tiny" disabled={busy} onClick={()=>approveMilestone(c,i)}><Check size={13}/> Phê duyệt</button>}
-    {!isAdmin && c.state===1 && m.approved && !m.withdrawn && <button className="primary tiny" disabled={busy} onClick={()=>withdrawMilestone(c,i)}>Giải ngân milestone</button>}
+    {!isAdmin && ok && !m.approved && (i===0 || c.milestones[i-1]?.withdrawn) && <div><input value={proofs[`${c.addr}-${i}`]||""} onChange={e=>setProofs(old=>({...old,[`${c.addr}-${i}`]:e.target.value}))} placeholder="Nhập mã hash / URL bằng chứng"/><button className="outline tiny" disabled={busy} onClick={()=>submitProof(c,i)}><Send size={13}/> Gửi bằng chứng</button></div>}
+    {isAdmin && ok && m.submitted && !m.approved && <button className="outline tiny" disabled={busy} onClick={()=>approveMilestone(c,i)}><Check size={13}/> Phê duyệt</button>}
+    {!isAdmin && ok && m.approved && !m.withdrawn && <button className="primary tiny" disabled={busy} onClick={()=>withdrawMilestone(c,i)}>Giải ngân milestone</button>}
   </div>)}</div>;
 }
