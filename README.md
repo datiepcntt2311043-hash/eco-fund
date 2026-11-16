@@ -3,4 +3,4 @@
 
 - **Mạng:** Cronos Testnet
 - **Chain ID:** 338
-- **CampaignFactory:** `0xE20154338f422dC191fcf038C18F78499135F4b2`
+- **CampaignFactory:** `0x3599CEAb223d0E89134c6BBCb1faC0817154993e`
