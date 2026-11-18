@@ -251,7 +251,7 @@ Tên nút theo giao diện hiện tại, đổi cho khớp nếu giao diện tha
 | X20 | Xác nhận milestone (A1) | Mốc đã có bằng chứng | Mốc chuyển sang chờ owner rút tiền | A1 xác nhận thành công, mở khóa nút rút tiền cho Owner | Đạt |
 | X21 | Rút tiền (A2) | Mốc đã duyệt | Số dư A2 tăng đúng tỷ lệ, mốc hiện "Đã giải ngân" | A2 nhận đủ TCRO theo tỷ lệ mốc, trạng thái cập nhật "Đã giải ngân" | Đạt |
 | X22 | Nhận lại tiền (A3) | Chiến dịch hết hạn chưa đủ | Nhận lại tiền, trạng thái "Đã hoàn tiền" | A3 gọi `refund` nhận lại đủ TCRO, trạng thái hiện "Đã hoàn tiền" | Đạt |
-| X23 | Nhận lại tiền, ví chưa ủng hộ (A4) | | Nút bị khóa | Nút hoàn tiền bị vô hiệu hóa đối với ví không có số dư đóng góp | Đạt |
+| X23 | Nhận lại tiền, ví chưa ủng hộ (A4) | | Không hiển thị nút | Hệ thống tự động ẩn hoàn toàn nút hoàn tiền đối với ví không có số dư đóng góp | Đạt |
 | X24 | Từ chối giao dịch ở popup MetaMask | Bất kỳ nút ghi nào | Web báo lỗi, dữ liệu không đổi, nút bấm lại được | Báo hủy giao dịch, dữ liệu giữ nguyên và nút thao tác không bị treo | Đạt |
 
 ---
