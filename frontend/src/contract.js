@@ -137,7 +137,12 @@ async function buildUser() {
   const account = await signer.getAddress();
   return { signer, account };
 }
-
+// Lấy tài khoản MetaMask đang được chọn (dùng khi người dùng đổi ví trong MetaMask)
+export async function currentUser() {
+  const { signer, account } = await buildUser();
+  saveSession(account);
+  return { signer, account };
+}
 // Đăng nhập = chọn ví + ký một thông điệp (miễn phí, không chuyển tiền)
 export async function loginWithWallet() {
   if (!window.ethereum) throw new Error("Chưa cài MetaMask. Hãy cài tiện ích MetaMask rồi tải lại trang.");
